@@ -1,0 +1,105 @@
+# Import necessary libraries
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from surprise import Dataset, Reader, SVD
+from surprise.model_selection import train_test_split
+from surprise import accuracy
+
+# Create a directory to save images
+output_dir = '/mnt/data/'
+os.makedirs(output_dir, exist_ok=True)
+
+# Load the MovieLens dataset
+url = 'http://files.grouplens.org/datasets/movielens/ml-latest-small.zip'
+ratings_path = 'ml-latest-small/ratings.csv'
+movies_path = 'ml-latest-small/movies.csv'
+
+# Download and extract the dataset
+!wget {url}
+!unzip -o ml-latest-small.zip
+
+# Load the ratings and movies data into pandas dataframes
+ratings = pd.read_csv(ratings_path)
+movies = pd.read_csv(movies_path)
+
+# Display the first few rows of the datasets
+print("Ratings Data:")
+print(ratings.head())
+print("\nMovies Data:")
+print(movies.head())
+
+# Check for missing values in the datasets
+print("\nMissing values in Ratings Data:")
+print(ratings.isnull().sum())
+print("\nMissing values in Movies Data:")
+print(movies.isnull().sum())
+
+# Basic statistics of the ratings data
+print("\nBasic Statistics of Ratings Data:")
+print(ratings.describe())
+
+# Visualization of Ratings Distribution
+plt.figure(figsize=(10, 6))
+plt.hist(ratings['rating'], bins=30, edgecolor='black')
+plt.title('Distribution of Movie Ratings')
+plt.xlabel('Rating')
+plt.ylabel('Frequency')
+plt.savefig(os.path.join(output_dir, 'ratings_distribution.png'))
+plt.show()
+
+# Load the data into Surprise dataset
+reader = Reader(rating_scale=(0.5, 5.0))
+data = Dataset.load_from_df(ratings[['userId', 'movieId', 'rating']], reader)
+
+# Split the data into training and testing sets
+trainset, testset = train_test_split(data, test_size=0.25)
+
+# Initialize the SVD algorithm
+algo = SVD()
+
+# Train the algorithm on the training set
+algo.fit(trainset)
+
+# Predict ratings for the testing set
+predictions = algo.test(testset)
+
+# Evaluate the algorithm using Root Mean Square Error (RMSE)
+rmse = accuracy.rmse(predictions)
+print(f'\nRMSE: {rmse}')
+
+# Get a list of all unique movie IDs
+all_movie_ids = movies['movieId'].unique()
+
+# Function to get top N recommendations for a given user
+def get_top_n_recommendations(user_id, n=10):
+    # Predict ratings for all movies not yet rated by the user
+    user_ratings = [algo.predict(user_id, movie_id) for movie_id in all_movie_ids]
+    
+    # Sort predictions by estimated rating
+    top_n_predictions = sorted(user_ratings, key=lambda x: x.est, reverse=True)[:n]
+    
+    # Get movie titles for the top N predictions
+    top_n_movie_ids = [pred.iid for pred in top_n_predictions]
+    top_n_movies = movies[movies['movieId'].isin(top_n_movie_ids)]
+    
+    return top_n_movies[['movieId', 'title', 'genres']]
+
+# Get top 10 recommendations for user with ID 1
+user_id = 1
+top_n_movies = get_top_n_recommendations(user_id, n=10)
+
+# Display the top 10 recommendations
+print("\nTop 10 Movie Recommendations for User 1:")
+print(top_n_movies)
+
+# Visualization of Top N Recommendations
+plt.figure(figsize=(10, 6))
+plt.barh(top_n_movies['title'], [algo.predict(user_id, movie_id).est for movie_id in top_n_movies['movieId']])
+plt.xlabel('Predicted Rating')
+plt.ylabel('Movie Title')
+plt.title('Top 10 Movie Recommendations for User 1')
+plt.gca().invert_yaxis()
+plt.savefig(os.path.join(output_dir, 'top_10_recommendations.png'))
+plt.show()
